@@ -14,13 +14,13 @@ from telegram.ext import (
 )
 
 # ────────────────────────────
-# 🌐 FLASK SERVER (Render Keep-Alive)
+# 🌐 Flask server (keep-alive)
 # ────────────────────────────
 app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return "Bot is running 24/7!"
+    return "Bot is running"
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
@@ -29,125 +29,181 @@ def run_flask():
 # ────────────────────────────
 # 🔐 CONFIGURATION
 # ────────────────────────────
-OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
+OPENROUTER_API_KEY = "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"
 
-# 🔴 HARD-CODED TELEGRAM TOKEN (as requested)
+# 🔴 HARD-CODED TELEGRAM BOT TOKEN (AS REQUESTED)
 TELEGRAM_BOT_TOKEN = "8594439271:AAE8zTwFAfQCQZIjRe3E-QlqKeuMoS189yY"
 
 MODEL_ID = "meta-llama/llama-3.3-70b-instruct:free"
 
 SYSTEM_PROMPT = """
-ROLE:
-You are a calm, emotionally intelligent narrator who speaks with quiet confidence and empathy.
+You are a calm, emotionally intelligent narrator.
 
-TASK:
-Read the user's input and transform it into a short, reflective script suitable for a 20–30 second social media reel.
+Your task is to generate a 30-second Instagram Reel script using this structure:
+Hook → Story → Shift → Close → Quote.
 
-VOICE & TONE:
-- Simple, clear English
-- Calm, mature, grounded
-- Sounds spoken, not written
-- Emotionally honest
-- Never preachy, dramatic, or hype-driven
+User input may be:
+- A rough motivational draft
+- Raw thoughts
+- Stats or facts
+- A direct instruction (/create, /stats, /edit, /quick)
 
-STRUCTURE (use naturally, not rigidly):
-- Open with a soft hook that speaks directly to the listener (“you”)
-- Reflect a common human struggle or feeling present in the input
-- Gently distinguish between what cannot be controlled and what can
-- Introduce a reassuring mindset shift that restores a sense of agency
-- End with calm reassurance or focus on the present moment
-- Close with a short, human, underrated quote, including the author’s name
-
-OUTPUT RULES:
-- 90–120 words maximum
-- Always use second-person voice (“you”)
-- Use short lines and natural pauses for spoken flow
-- Avoid clichés, buzzwords, or motivational shouting
-- Make it feel like quiet advice from someone who truly understands
-
-IMPORTANT:
-Do not explain the structure.
-Only output the final script.
+Rules:
+- If input looks like a draft, treat it as RAW MATERIAL and refine it.
+- Improve structure, flow, and pacing without changing meaning.
+- Always use second-person (“you”).
+- Calm, grounded, mature tone.
+- No headings.
+- No explanations.
+- Output ONLY the final script.
 """
 
 # ────────────────────────────
-# 🤖 OPENROUTER CALL
+# 🤖 OpenRouter API
 # ────────────────────────────
 def call_openrouter(messages):
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-    }
-
-    payload = {
-        "model": MODEL_ID,
-        "messages": messages,
-        "temperature": 0.7,
-        "max_tokens": 350,
-    }
-
     response = requests.post(
         "https://openrouter.ai/api/v1/chat/completions",
-        headers=headers,
-        data=json.dumps(payload),
+        headers={
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        data=json.dumps({
+            "model": MODEL_ID,
+            "messages": messages,
+            "temperature": 0.7,
+            "max_tokens": 350,
+        }),
         timeout=60,
     )
-
     response.raise_for_status()
-    data = response.json()
-    return data["choices"][0]["message"]["content"]
+    return response.json()["choices"][0]["message"]["content"]
 
 async def get_llm_response(messages):
-    return await threading.get_event_loop().run_in_executor(
-        None, call_openrouter, messages
-    )
+    loop = threading.get_event_loop()
+    return await loop.run_in_executor(None, call_openrouter, messages)
 
 # ────────────────────────────
-# 📩 TELEGRAM HANDLERS
+# 🧠 Utility: detect raw drafts
+# ────────────────────────────
+def looks_like_draft(text: str) -> bool:
+    return len(text.splitlines()) >= 4 or len(text.split()) > 80
+
+# ────────────────────────────
+# 📩 Telegram Handlers
 # ────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+    context.user_data["history"] = [
+        {"role": "system", "content": SYSTEM_PROMPT}
+    ]
     await update.message.reply_text(
-        "🎬 Instagram Reel Script Generator\n\n"
-        "Send any thought, theme, or raw idea.\n"
-        "I’ll turn it into a calm, reflective reel script."
+        "Send raw thoughts, drafts, stats, or use commands:\n\n"
+        "/create – create from scratch\n"
+        "/stats – convert stats to script\n"
+        "/edit – edit last script\n"
+        "/quick – fast one-line idea\n"
+        "/new – reset conversation"
     )
 
+async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+    await update.message.reply_text("New conversation started. Send a fresh idea.")
+
+# ────────────── COMMANDS ──────────────
+
+async def create_script(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    prompt = f"""
+Create a fresh 30-second Instagram Reel script using this input:
+
+{update.message.text.replace('/create', '').strip()}
+"""
+    context.user_data["history"] = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": prompt}
+    ]
+
+    reply = await get_llm_response(context.user_data["history"])
+    context.user_data["history"].append({"role": "assistant", "content": reply})
+    await update.message.reply_text(reply)
+
+async def stats_script(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    prompt = f"""
+Convert the following stats into a calm, human reel script.
+Focus on emotional pressure, not numbers.
+
+Stats:
+{update.message.text.replace('/stats', '').strip()}
+"""
+    context.user_data["history"] = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": prompt}
+    ]
+
+    reply = await get_llm_response(context.user_data["history"])
+    context.user_data["history"].append({"role": "assistant", "content": reply})
+    await update.message.reply_text(reply)
+
+async def edit_script(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    instruction = update.message.text.replace('/edit', '').strip()
+
+    context.user_data["history"].append({
+        "role": "user",
+        "content": f"Edit the previous script using these instructions:\n{instruction}"
+    })
+
+    reply = await get_llm_response(context.user_data["history"])
+    context.user_data["history"].append({"role": "assistant", "content": reply})
+    await update.message.reply_text(reply)
+
+async def quick_script(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    idea = update.message.text.replace('/quick', '').strip()
+
+    context.user_data["history"] = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": f"Create a 30-second reel script based on this idea:\n{idea}"}
+    ]
+
+    reply = await get_llm_response(context.user_data["history"])
+    context.user_data["history"].append({"role": "assistant", "content": reply})
+    await update.message.reply_text(reply)
+
+# ────────────── DEFAULT HANDLER ──────────────
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_input = update.message.text
+    user_text = update.message.text
 
     if "history" not in context.user_data:
         context.user_data["history"] = [
             {"role": "system", "content": SYSTEM_PROMPT}
         ]
 
+    # Auto-refine raw drafts
+    if looks_like_draft(user_text):
+        user_text = f"""
+Refine the following raw draft into a structured 30-second reel script.
+Improve clarity, flow, and pacing.
+
+Draft:
+{user_text}
+"""
+
     context.user_data["history"].append(
-        {"role": "user", "content": user_input}
+        {"role": "user", "content": user_text}
     )
 
     await context.bot.send_chat_action(
         chat_id=update.message.chat_id,
-        action=ChatAction.TYPING,
+        action=ChatAction.TYPING
     )
 
-    try:
-        reply = await get_llm_response(context.user_data["history"])
-        context.user_data["history"].append(
-            {"role": "assistant", "content": reply}
-        )
-        await update.message.reply_text(reply)
+    reply = await get_llm_response(context.user_data["history"])
+    context.user_data["history"].append({"role": "assistant", "content": reply})
 
-    except Exception as e:
-        await update.message.reply_text("⚠️ Something went wrong. Try again.")
-        print("Error:", e)
-
-async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["history"] = [
-        {"role": "system", "content": SYSTEM_PROMPT}
-    ]
-    await update.message.reply_text("🔄 Memory cleared. Send a new idea!")
+    await update.message.reply_text(reply)
 
 # ────────────────────────────
-# 🚀 RUN BOT
+# 🚀 RUN EVERYTHING
 # ────────────────────────────
 if __name__ == "__main__":
     threading.Thread(target=run_flask, daemon=True).start()
@@ -155,10 +211,14 @@ if __name__ == "__main__":
     application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("reset", reset))
+    application.add_handler(CommandHandler("new", reset))
+    application.add_handler(CommandHandler("create", create_script))
+    application.add_handler(CommandHandler("stats", stats_script))
+    application.add_handler(CommandHandler("edit", edit_script))
+    application.add_handler(CommandHandler("quick", quick_script))
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
     )
 
-    print("✅ Bot is live…")
+    print("✅ Bot is live")
     application.run_polling()
