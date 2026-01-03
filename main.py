@@ -14,7 +14,7 @@ from telegram.ext import (
 )
 
 # ────────────────────────────
-# 🌐 Flask server (keep-alive)
+# 🌐 Flask keep-alive server
 # ────────────────────────────
 app = Flask(__name__)
 
@@ -31,7 +31,7 @@ def run_flask():
 # ────────────────────────────
 OPENROUTER_API_KEY = "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"
 
-# 🔴 HARD-CODED TELEGRAM BOT TOKEN (AS REQUESTED)
+# 🔴 HARD-CODED TELEGRAM BOT TOKEN
 TELEGRAM_BOT_TOKEN = "8594439271:AAE8zTwFAfQCQZIjRe3E-QlqKeuMoS189yY"
 
 MODEL_ID = "meta-llama/llama-3.3-70b-instruct:free"
@@ -108,26 +108,35 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
-    await update.message.reply_text("New conversation started. Send a fresh idea.")
+    await update.message.reply_text("🔄 New conversation started. Send a fresh idea.")
 
 # ────────────── COMMANDS ──────────────
 
 async def create_script(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("✅ Message received")
+
     prompt = f"""
 Create a fresh 30-second Instagram Reel script using this input:
 
 {update.message.text.replace('/create', '').strip()}
 """
+
     context.user_data["history"] = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": prompt}
     ]
 
-    reply = await get_llm_response(context.user_data["history"])
-    context.user_data["history"].append({"role": "assistant", "content": reply})
-    await update.message.reply_text(reply)
+    try:
+        reply = await get_llm_response(context.user_data["history"])
+        context.user_data["history"].append({"role": "assistant", "content": reply})
+        await update.message.reply_text(reply)
+    except Exception as e:
+        await update.message.reply_text(f"❌ ERROR:\n{str(e)}")
+        raise
 
 async def stats_script(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("✅ Message received")
+
     prompt = f"""
 Convert the following stats into a calm, human reel script.
 Focus on emotional pressure, not numbers.
@@ -135,16 +144,23 @@ Focus on emotional pressure, not numbers.
 Stats:
 {update.message.text.replace('/stats', '').strip()}
 """
+
     context.user_data["history"] = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": prompt}
     ]
 
-    reply = await get_llm_response(context.user_data["history"])
-    context.user_data["history"].append({"role": "assistant", "content": reply})
-    await update.message.reply_text(reply)
+    try:
+        reply = await get_llm_response(context.user_data["history"])
+        context.user_data["history"].append({"role": "assistant", "content": reply})
+        await update.message.reply_text(reply)
+    except Exception as e:
+        await update.message.reply_text(f"❌ ERROR:\n{str(e)}")
+        raise
 
 async def edit_script(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("✅ Message received")
+
     instruction = update.message.text.replace('/edit', '').strip()
 
     context.user_data["history"].append({
@@ -152,11 +168,17 @@ async def edit_script(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "content": f"Edit the previous script using these instructions:\n{instruction}"
     })
 
-    reply = await get_llm_response(context.user_data["history"])
-    context.user_data["history"].append({"role": "assistant", "content": reply})
-    await update.message.reply_text(reply)
+    try:
+        reply = await get_llm_response(context.user_data["history"])
+        context.user_data["history"].append({"role": "assistant", "content": reply})
+        await update.message.reply_text(reply)
+    except Exception as e:
+        await update.message.reply_text(f"❌ ERROR:\n{str(e)}")
+        raise
 
 async def quick_script(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("✅ Message received")
+
     idea = update.message.text.replace('/quick', '').strip()
 
     context.user_data["history"] = [
@@ -164,21 +186,27 @@ async def quick_script(update: Update, context: ContextTypes.DEFAULT_TYPE):
         {"role": "user", "content": f"Create a 30-second reel script based on this idea:\n{idea}"}
     ]
 
-    reply = await get_llm_response(context.user_data["history"])
-    context.user_data["history"].append({"role": "assistant", "content": reply})
-    await update.message.reply_text(reply)
+    try:
+        reply = await get_llm_response(context.user_data["history"])
+        context.user_data["history"].append({"role": "assistant", "content": reply})
+        await update.message.reply_text(reply)
+    except Exception as e:
+        await update.message.reply_text(f"❌ ERROR:\n{str(e)}")
+        raise
 
 # ────────────── DEFAULT HANDLER ──────────────
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
 
+    # Immediate acknowledgement
+    await update.message.reply_text("✅ Message received")
+
     if "history" not in context.user_data:
         context.user_data["history"] = [
             {"role": "system", "content": SYSTEM_PROMPT}
         ]
 
-    # Auto-refine raw drafts
     if looks_like_draft(user_text):
         user_text = f"""
 Refine the following raw draft into a structured 30-second reel script.
@@ -197,10 +225,13 @@ Draft:
         action=ChatAction.TYPING
     )
 
-    reply = await get_llm_response(context.user_data["history"])
-    context.user_data["history"].append({"role": "assistant", "content": reply})
-
-    await update.message.reply_text(reply)
+    try:
+        reply = await get_llm_response(context.user_data["history"])
+        context.user_data["history"].append({"role": "assistant", "content": reply})
+        await update.message.reply_text(reply)
+    except Exception as e:
+        await update.message.reply_text(f"❌ ERROR:\n{str(e)}")
+        raise
 
 # ────────────────────────────
 # 🚀 RUN EVERYTHING
@@ -221,4 +252,4 @@ if __name__ == "__main__":
     )
 
     print("✅ Bot is live")
-    application.run_polling()
+    application.run_polling(drop_pending_updates=True)
